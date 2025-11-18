@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>章魚燒大亨 - Takoyaki Tycoon</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            touch-action: manipulation; /* 禁用雙擊縮放 */
+            /* 更新為帶有櫻花和富士山的日式背景圖片 */
+            background-image: url('https://images.unsplash.com/photo-1524413840807-0c3cb6fa808d?q=80&w=1200&auto=format&fit=crop');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed; /* 讓背景固定 */
+        }
+        .game-container {
+            max-width: 500px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-color: rgba(255, 255, 255, 0.85); /* 恢復半透明背景 */
+        }
+        .screen {
+            display: none;
+        }
+        .screen.active {
+            display: flex;
+        }
+        .takoyaki-grill {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            user-select: none;
+        }
+        .takoyaki-mold {
+            width: 60px;
+            height: 60px;
+            background-color: #d1d5db;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: background-color 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+        }
+        .takoyaki {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            transition: all 0.2s;
+            background-size: cover;
+            background-position: center;
+            pointer-events: none; /* 讓點擊事件穿透到父層 mold */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 20px;
+            color: #c82a2a;
+        }
+        /* 章魚燒階段外觀 */
+        .empty .takoyaki { background-color: transparent; }
+        .batter .takoyaki { background-color: #fde68a; } /* 麵糊 */
+        .octopus .takoyaki::before { content: '🐙'; } /* 加入章魚 */
+        .cooking-1 .takoyaki, .cooking-2 .takoyaki { background-color: #f59e0b; } /* 烹飪中 */
+        .flipped .takoyaki { background-color: #de8c07; border-top: 5px solid #b45309; }
+        .cooked .takoyaki { background-color: #b45309; } /* 煮熟 */
+        .burnt .takoyaki { background-color: #1f2937; } /* 燒焦 */
+        .burnt .takoyaki::before { content: '🔥'; }
+
+        @keyframes glowing {
+            0% { box-shadow: 0 0 4px #fbbf24; }
+            50% { box-shadow: 0 0 14px #fbbf24; }
+            100% { box-shadow: 0 0 4px #fbbf24; }
+        }
+        .ready-to-flip, .ready-to-serve {
+            animation: glowing 1.5s infinite ease-in-out;
+        }
+        
+        #message-popup {
+            transition: opacity 0.5s, transform 0.5s;
+        }
+
+        .takoyaki-on-plate {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            position: relative;
+        }
+        /* 在盤子上顯示口味 */
+        .takoyaki-on-plate.topped-seaweed::after { content: '🌿'; font-size: 10px; position: absolute; top:0; right: 0; }
+        .takoyaki-on-plate.topped-plum::after { content: '🌸'; font-size: 10px; position: absolute; top:0; right: 0; }
+
+        /* 新增的盤子樣式 */
+        #plate-area {
+            background-color: #8B4513; /* 棕色，模擬木頭 */
+            border: 5px solid #654321; /* 深棕色邊框 */
+            border-radius: 10px; /* 輕微圓角 */
+            padding: 10px; /* 增加內邊距 */
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            position: relative; /* 用於放置吸油紙 */
+        }
+        #plate-area::before {
+            content: '';
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            right: 5px;
+            bottom: 5px;
+            background-color: #FFFDD0; /* 奶油色，模擬吸油紙 */
+            border-radius: 5px; /* 吸油紙輕微圓角 */
+            z-index: 0; /* 確保在章魚燒下方 */
+        }
+        #plate-contents {
+            position: relative;
+            z-index: 1; /* 確保章魚燒在吸油紙上方 */
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center">
+
+    <div class="game-container w-full shadow-2xl rounded-lg overflow-hidden flex flex-col">
+
+        <!-- 遊戲標頭 --><header class="bg-red-600 text-white p-4 text-center shadow-md z-10">
+            <h1 class="text-2xl font-bold">章魚燒大亨</h1>
+            <div class="mt-2 text-lg">
+                <span>金錢: $</span><span id="money">0</span>
+            </div>
+        </header>
+
+        <!-- 主遊戲區域 --><main class="flex-grow p-4 md:p-6 overflow-y-auto relative">
+            <!-- 廚房畫面 --><div id="kitchen-screen" class="screen active flex-col items-center justify-center text-center h-full">
+                <h2 class="text-3xl font-bold text-gray-800 mb-6">我的廚房</h2>
+                <div id="inventory" class="w-full max-w-sm bg-gray-100 p-4 rounded-lg shadow-inner">
+                    <h3 class="text-xl font-semibold mb-3 border-b-2 border-gray-300 pb-2">食材庫存</h3>
+                    <div class="space-y-2 text-left">
+                        <p class="text-lg">🐙 章魚: <span id="inv-octopus" class="font-bold">0</span></p>
+                        <p class="text-lg">🌾 麵糊: <span id="inv-batter" class="font-bold">0</span></p>
+                        <p class="text-lg">🥫 醬料: <span id="inv-topping" class="font-bold">0</span> (原味)</p>
+                        <p class="text-lg">🌿 海苔粉: <span id="inv-seaweed" class="font-bold">0</span></p>
+                        <p class="text-lg">🌸 梅粉: <span id="inv-plum" class="font-bold">0</span></p>
+                    </div>
+                </div>
+                <button id="start-cooking-btn" class="mt-8 w-full max-w-sm bg-green-500 hover:bg-green-600 text-white font-bold py-4 px-4 rounded-lg text-xl shadow-lg transform hover:scale-105 transition-transform">
+                    開始營業！
+                </button>
+                <button id="go-to-store-btn" class="mt-4 w-full max-w-sm bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg text-lg shadow-lg transform hover:scale-105 transition-transform">
+                    前往商店
+                </button>
+            </div>
+
+            <!-- 商店畫面 --><div id="store-screen" class="screen flex-col items-center text-center h-full">
+                <h2 class="text-3xl font-bold text-gray-800 mb-6">商店</h2>
+                <div class="w-full max-w-sm space-y-4">
+                    <div class="bg-gray-100 p-4 rounded-lg shadow-inner flex justify-between items-center">
+                        <span class="text-lg">🐙 章魚 ($15)</span>
+                        <button class="buy-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-5 rounded-md shadow-md" data-item="octopus">購買</button>
+                    </div>
+                    <div class="bg-gray-100 p-4 rounded-lg shadow-inner flex justify-between items-center">
+                        <span class="text-lg">🌾 麵糊 ($10)</span>
+                        <button class="buy-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-5 rounded-md shadow-md" data-item="batter">購買</button>
+                    </div>
+                    <div class="bg-gray-100 p-4 rounded-lg shadow-inner flex justify-between items-center">
+                        <span class="text-lg">🥫 醬料 ($5)</span>
+                        <button class="buy-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-5 rounded-md shadow-md" data-item="topping">購買</button>
+                    </div>
+                     <div class="bg-gray-100 p-4 rounded-lg shadow-inner flex justify-between items-center">
+                        <span class="text-lg">🌿 海苔粉 ($8)</span>
+                        <button class="buy-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-5 rounded-md shadow-md" data-item="seaweed">購買</button>
+                    </div>
+                     <div class="bg-gray-100 p-4 rounded-lg shadow-inner flex justify-between items-center">
+                        <span class="text-lg">🌸 梅粉 ($8)</span>
+                        <button class="buy-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-5 rounded-md shadow-md" data-item="plum">購買</button>
+                    </div>
+                </div>
+                <button id="back-to-kitchen-btn" class="mt-8 w-full max-w-sm bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg text-lg shadow-lg">
+                    返回廚房
+                </button>
+            </div>
+
+            <!-- 烹飪畫面 --><div id="cooking-screen" class="screen flex-col items-center h-full">
+                <div id="customer-area" class="w-full h-20 flex items-center justify-center hidden">
+                    <div class="relative">
+                        <div id="customer-sprite" class="text-6xl transition-transform duration-500 transform">😀</div>
+                        <div id="speech-bubble" class="absolute -top-8 -right-32 bg-white border-2 border-gray-400 px-3 py-1 rounded-lg text-sm shadow-md whitespace-nowrap">
+                            我要一份 <span id="order-flavor" class="font-bold text-red-600"></span> 章魚燒！
+                        </div>
+                    </div>
+                </div>
+                <div id="timer-display" class="text-2xl font-bold text-red-600 my-1">時間: 1:30</div>
+                <h2 id="instruction" class="text-xl font-bold text-gray-800 text-center h-12 flex items-center justify-center">準備開始...</h2>
+                <div class="takoyaki-grill w-full max-w-xs">
+                    <!-- 烤盤由 JS 動態生成 --></div>
+                <div id="plate-area" class="w-full max-w-sm mt-4 h-16 flex items-center justify-center p-2 shadow-inner">
+                    <div id="plate-contents" class="flex flex-wrap gap-1">
+                        <!-- 煮好的章魚燒會出現在這裡 --></div>
+                </div>
+                <div id="topping-choices" class="mt-4 w-full max-w-sm flex justify-center gap-2 hidden">
+                    <button id="add-topping-original" data-flavor="original" class="topping-btn flex-1 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 px-2 rounded-lg shadow-lg">🥫 原味</button>
+                    <button id="add-topping-seaweed" data-flavor="seaweed" class="topping-btn flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-2 rounded-lg shadow-lg">🌿 海苔</button>
+                    <button id="add-topping-plum" data-flavor="plum" class="topping-btn flex-1 bg-pink-500 hover:bg-pink-600 text-white font-bold py-3 px-2 rounded-lg shadow-lg">🌸 梅粉</button>
+                </div>
+                <button id="action-btn" class="mt-4 w-full max-w-sm bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg text-lg shadow-lg">
+                    下一步
+                </button>
+            </div>
+        </main>
+        
+        <div id="message-popup" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black bg-opacity-70 text-white text-2xl font-bold px-8 py-4 rounded-lg shadow-xl opacity-0 pointer-events-none transform scale-75 whitespace-pre-line text-center">
+            <span id="message-text"></span>
+        </div>
+
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // DOM 元素
+            const moneyEl = document.getElementById('money');
+            const invOctopusEl = document.getElementById('inv-octopus');
+            const invBatterEl = document = document.getElementById('inv-batter');
+            const invToppingEl = document.getElementById('inv-topping');
+            const invSeaweedEl = document.getElementById('inv-seaweed');
+            const invPlumEl = document.getElementById('inv-plum');
+
+            const kitchenScreen = document.getElementById('kitchen-screen');
+            const storeScreen = document.getElementById('store-screen');
+            const cookingScreen = document.getElementById('cooking-screen');
+            const startCookingBtn = document.getElementById('start-cooking-btn');
+            const goToStoreBtn = document.getElementById('go-to-store-btn');
+            const backToKitchenBtn = document.getElementById('back-to-kitchen-btn');
+            const actionBtn = document.getElementById('action-btn');
+            const buyBtns = document.querySelectorAll('.buy-btn');
+            const instructionEl = document.getElementById('instruction');
+            const grillEl = document.querySelector('.takoyaki-grill');
+            const plateContentsEl = document.getElementById('plate-contents');
+            const messagePopup = document.getElementById('message-popup');
+            const messageText = document.getElementById('message-text');
+            const customerArea = document.getElementById('customer-area');
+            const customerSprite = document.getElementById('customer-sprite');
+            const orderFlavorEl = document.getElementById('order-flavor');
+            const toppingChoicesEl = document.getElementById('topping-choices');
+            const toppingBtns = document.querySelectorAll('.topping-btn');
+            const timerDisplayEl = document.getElementById('timer-display');
+
+            // 遊戲常數
+            const TAKOYAKI_COUNT = 8;
+            const COOK_TIME = 5000; 
+            const PERFECT_WINDOW = 0.2; 
+            const GAME_TIMER_SECONDS = 90; // 90秒
+            const FLAVORS = {
+                original: '原味',
+                seaweed: '海苔口味',
+                plum: '梅粉口味'
+            };
+
+            // 遊戲狀態
+            let gameState = {
+                money: 100,
+                inventory: { octopus: 5, batter: 5, topping: 5, seaweed: 2, plum: 2 },
+                prices: { octopus: 15, batter: 10, topping: 5, seaweed: 8, plum: 8 },
+                takoyakiPrice: 80,
+                cooking: {
+                    molds: [],
+                    gameLoopInterval: null,
+                    timerInterval: null,
+                    timerValue: GAME_TIMER_SECONDS,
+                    currentPhase: 'idle',
+                    speed: 100,
+                    customerOrder: null,
+                },
+                plate: [],
+                isWinner: false, // 新增勝利狀態
+            };
+
+            function updateUI() {
+                moneyEl.textContent = gameState.money;
+                invOctopusEl.textContent = gameState.inventory.octopus;
+                invBatterEl.textContent = gameState.inventory.batter;
+                invToppingEl.textContent = gameState.inventory.topping;
+                invSeaweedEl.textContent = gameState.inventory.seaweed;
+                invPlumEl.textContent = gameState.inventory.plum;
+
+                if (gameState.money >= 10000) {
+                    if (!gameState.isWinner) { // 檢查是否為第一次達成
+                        gameState.isWinner = true;
+                        showMessage("恭喜！您已賺到10000元，成為章魚燒大富翁！ 🏆", 5000);
+                    }
+                    startCookingBtn.disabled = true;
+                    startCookingBtn.textContent = "🏆 章魚燒大富翁 🏆";
+                    // 更新按鈕樣式為勝利狀態
+                    startCookingBtn.classList.add('bg-yellow-500', 'hover:bg-yellow-600', 'cursor-not-allowed', 'opacity-100');
+                    startCookingBtn.classList.remove('bg-green-500', 'hover:bg-green-600', 'opacity-50');
+                    
+                    goToStoreBtn.disabled = true;
+                    goToStoreBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                } else {
+                    // 遊戲尚未勝利時的按鈕邏輯
+                    const canCook = gameState.inventory.octopus > 0 && gameState.inventory.batter > 0 && gameState.inventory.topping > 0;
+                    startCookingBtn.disabled = !canCook;
+                    startCookingBtn.classList.toggle('opacity-50', !canCook);
+                    startCookingBtn.classList.toggle('cursor-not-allowed', !canCook);
+                    startCookingBtn.textContent = "開始營業！";
+                    // 確保商店按鈕可用
+                    goToStoreBtn.disabled = false;
+                    goToStoreBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            }
+
+            function switchScreen(screen) {
+                document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+                document.getElementById(`${screen}-screen`).classList.add('active');
+            }
+
+            function showMessage(text, duration = 1500) {
+                messageText.textContent = text;
+                messagePopup.classList.remove('opacity-0', 'scale-75');
+                messagePopup.classList.add('opacity-100', 'scale-100');
+                setTimeout(() => {
+                    messagePopup.classList.remove('opacity-100', 'scale-100');
+                    messagePopup.classList.add('opacity-0', 'scale-75');
+                }, duration);
+            }
+
+            function buyItem(item) {
+                if(gameState.isWinner) return; // 勝利後不能購買
+                if (gameState.money >= gameState.prices[item]) {
+                    gameState.money -= gameState.prices[item];
+                    gameState.inventory[item]++;
+                    updateUI();
+                    showMessage(`買了 1 份 ${item}!`);
+                } else {
+                    showMessage("金錢不足！");
+                }
+            }
+            
+            function onMoldClick(e) {
+                const moldId = parseInt(e.currentTarget.dataset.id, 10);
+                const mold = gameState.cooking.molds[moldId];
+                if (!mold || gameState.cooking.timerValue <= 0) return;
+
+                const phase = gameState.cooking.currentPhase;
+                if (phase === 'add_batter' && mold.status === 'empty') {
+                    mold.status = 'batter';
+                } else if (phase === 'add_octopus' && mold.status === 'batter') {
+                    mold.status = 'octopus';
+                } else if (phase === 'cooking') {
+                    if (mold.status === 'ready-to-flip') {
+                        mold.status = 'flipped';
+                        mold.progress = 0;
+                    } else if (mold.status === 'ready-to-serve') {
+                        mold.status = 'cooked';
+                        gameState.plate.push('perfect');
+                        renderPlate();
+                    } else if (mold.status === 'burnt') {
+                        mold.status = 'removed';
+                        gameState.plate.push('burnt');
+                        renderPlate();
+                    }
+                }
+                renderSingleMold(moldId);
+                checkPhaseCompletion();
+            }
+
+            function checkPhaseCompletion() {
+                const molds = gameState.cooking.molds;
+                const phase = gameState.cooking.currentPhase;
+                if (phase === 'add_batter' && molds.every(m => m.status === 'batter')) {
+                    advancePhase();
+                } else if (phase === 'add_octopus' && molds.every(m => m.status === 'octopus')) {
+                    advancePhase();
+                } else if (phase === 'cooking' && gameState.plate.length === TAKOYAKI_COUNT) {
+                    advancePhase();
+                }
+            }
+            
+            function advancePhase() {
+                const phases = ['add_batter', 'add_octopus', 'cooking', 'plating'];
+                const currentIdx = phases.indexOf(gameState.cooking.currentPhase);
+                if (currentIdx === -1 || currentIdx + 1 >= phases.length) return;
+                
+                const nextPhase = phases[currentIdx + 1];
+                gameState.cooking.currentPhase = nextPhase;
+                
+                actionBtn.classList.add('hidden');
+
+                switch(nextPhase) {
+                    case 'add_octopus':
+                        instructionEl.textContent = '點擊烤盤加入章魚 🐙';
+                        break;
+                    case 'cooking':
+                        instructionEl.textContent = '在發光時點擊來翻面和起鍋！';
+                        startGameLoop();
+                        startTimer();
+                        break;
+                    case 'plating':
+                        instructionEl.textContent = `請為客人選擇正確的口味！`;
+                        stopGameLoop();
+                        stopTimer();
+                        toppingChoicesEl.classList.remove('hidden');
+                        toppingBtns.forEach(btn => {
+                            const flavor = btn.dataset.flavor;
+                            if (flavor !== 'original' && gameState.inventory[flavor] < 1) {
+                                btn.disabled = true;
+                                btn.classList.add('opacity-50', 'cursor-not-allowed');
+                            } else {
+                                btn.disabled = false;
+                                btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                            }
+                        });
+                        break;
+                }
+            }
+
+            function createGrill() {
+                grillEl.innerHTML = '';
+                for (let i = 0; i < TAKOYAKI_COUNT; i++) {
+                    const mold = document.createElement('div');
+                    mold.className = 'takoyaki-mold';
+                    mold.dataset.id = i;
+                    const takoyaki = document.createElement('div');
+                    takoyaki.className = 'takoyaki';
+                    mold.appendChild(takoyaki);
+                    mold.addEventListener('click', onMoldClick);
+                    grillEl.appendChild(mold);
+                }
+            }
+            
+            function renderSingleMold(id) {
+                const moldState = gameState.cooking.molds[id];
+                const moldEl = grillEl.children[id];
+                if (!moldState || !moldEl) return;
+                moldEl.className = `takoyaki-mold ${moldState.status}`;
+                moldEl.querySelector('.takoyaki').className = `takoyaki ${moldState.status}`;
+            }
+
+            function renderAllMolds() {
+                for(let i = 0; i < TAKOYAKI_COUNT; i++) renderSingleMold(i);
+            }
+
+            function renderPlate(chosenFlavor = null) {
+                plateContentsEl.innerHTML = '';
+                gameState.plate.forEach(item => {
+                    const div = document.createElement('div');
+                    let classes = `takoyaki-on-plate ${item === 'perfect' ? 'bg-orange-800' : 'bg-gray-800'}`;
+                    if(chosenFlavor && item === 'perfect'){
+                        classes += ` topped-${chosenFlavor}`;
+                    }
+                    div.className = classes;
+                    plateContentsEl.appendChild(div);
+                });
+            }
+
+            function startGameLoop() {
+                if (gameState.cooking.gameLoopInterval) clearInterval(gameState.cooking.gameLoopInterval);
+                gameState.cooking.gameLoopInterval = setInterval(() => {
+                    let changed = false;
+                    gameState.cooking.molds.forEach(mold => {
+                        const status = mold.status;
+                        if (status === 'octopus' || status === 'flipped') {
+                            mold.progress += (gameState.cooking.speed / COOK_TIME) * 100;
+                            const perfectStart = (1 - PERFECT_WINDOW) / 2 * 100;
+                            const perfectEnd = (1 + PERFECT_WINDOW) / 2 * 100;
+
+                            if(mold.progress >= perfectStart && mold.progress < perfectEnd) {
+                                mold.status = status === 'octopus' ? 'ready-to-flip' : 'ready-to-serve';
+                            } else if (mold.progress >= 100) {
+                                mold.status = 'burnt';
+                            } else {
+                                if(status === 'ready-to-flip') mold.status = 'octopus';
+                                if(status === 'ready-to-serve') mold.status = 'flipped';
+                            }
+                            changed = true;
+                        }
+                    });
+                    if (changed) renderAllMolds();
+                }, gameState.cooking.speed);
+            }
+            
+            function stopGameLoop() {
+                 clearInterval(gameState.cooking.gameLoopInterval);
+                 gameState.cooking.gameLoopInterval = null;
+            }
+            
+            function updateTimerDisplay() {
+                const minutes = Math.floor(gameState.cooking.timerValue / 60);
+                const seconds = gameState.cooking.timerValue % 60;
+                timerDisplayEl.textContent = `時間: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+            }
+
+            function handleTimeUp() {
+                showMessage("時間到！剩下的都燒焦了！", 2000);
+                gameState.cooking.molds.forEach(mold => {
+                    const isFinished = ['cooked', 'removed', 'burnt'].includes(mold.status);
+                    if (!isFinished) {
+                        mold.status = 'burnt';
+                        gameState.plate.push('burnt');
+                    }
+                });
+                renderAllMolds();
+                renderPlate();
+                checkPhaseCompletion(); // Should advance to plating
+            }
+
+            function startTimer() {
+                stopTimer(); // Ensure no multiple timers
+                gameState.cooking.timerInterval = setInterval(() => {
+                    gameState.cooking.timerValue--;
+                    updateTimerDisplay();
+                    if (gameState.cooking.timerValue <= 0) {
+                        stopTimer();
+                        handleTimeUp();
+                    }
+                }, 1000);
+            }
+
+            function stopTimer() {
+                clearInterval(gameState.cooking.timerInterval);
+                gameState.cooking.timerInterval = null;
+            }
+
+            function startCooking() {
+                if (gameState.inventory.octopus < 1 || gameState.inventory.batter < 1 || gameState.inventory.topping < 1) {
+                    showMessage("基本食材不足！"); return;
+                }
+                gameState.inventory.batter--;
+                gameState.inventory.octopus--;
+                updateUI();
+                switchScreen('cooking');
+
+                // Reset state
+                gameState.plate = [];
+                gameState.cooking.molds = Array.from({ length: TAKOYAKI_COUNT }, () => ({ status: 'empty', progress: 0 }));
+                gameState.cooking.currentPhase = 'add_batter';
+                gameState.cooking.timerValue = GAME_TIMER_SECONDS;
+                updateTimerDisplay();
+                
+                const flavorKeys = Object.keys(FLAVORS);
+                gameState.cooking.customerOrder = flavorKeys[Math.floor(Math.random() * flavorKeys.length)];
+                orderFlavorEl.textContent = FLAVORS[gameState.cooking.customerOrder];
+
+                createGrill();
+                renderAllMolds();
+                renderPlate();
+                
+                customerSprite.textContent = ['😀', '😃', '😄', '😁'][Math.floor(Math.random()*4)];
+                customerArea.classList.remove('hidden');
+                customerSprite.classList.remove('translate-x-full', 'opacity-0');
+
+                instructionEl.textContent = '點擊烤盤倒入麵糊 🌾';
+                actionBtn.classList.remove('hidden');
+                actionBtn.disabled = true;
+                actionBtn.classList.add('opacity-50');
+                toppingChoicesEl.classList.add('hidden');
+            }
+
+            function serveCustomer(chosenFlavor) {
+                toppingChoicesEl.classList.add('hidden');
+                renderPlate(chosenFlavor);
+
+                const perfectCount = gameState.plate.filter(p => p === 'perfect').length;
+                let baseEarnings = Math.round(perfectCount / TAKOYAKI_COUNT * gameState.takoyakiPrice);
+                let finalEarnings = baseEarnings;
+                let message = '';
+                
+                // 消耗調味料
+                if (perfectCount > 0) { // 只有成功做出章魚燒才消耗調味料
+                    if (chosenFlavor === 'original') gameState.inventory.topping--;
+                    if (chosenFlavor === 'seaweed') gameState.inventory.seaweed--;
+                    if (chosenFlavor === 'plum') gameState.inventory.plum--;
+                }
+                
+                if (chosenFlavor !== gameState.cooking.customerOrder) {
+                    finalEarnings = Math.round(baseEarnings * 0.4); // 做錯口味懲罰
+                    message = `口味錯了！只賣出 $${finalEarnings}...`;
+                } else {
+                    message = `正確的口味！賣了 $${finalEarnings}！`;
+
+                    // NEW: Add tip logic here
+                    const timeTaken = GAME_TIMER_SECONDS - gameState.cooking.timerValue;
+                    const tip = 30;
+                    if (timeTaken <= 30 && perfectCount > 0) {
+                        finalEarnings += tip;
+                        message += `\n快速出餐獲得好評，小費 $${tip}！`;
+                    }
+                }
+
+                gameState.money += finalEarnings;
+
+                const reaction = finalEarnings > gameState.takoyakiPrice * 0.8 ? '😍' : finalEarnings > gameState.takoyakiPrice * 0.5 ? '🙂' : '😒';
+                customerSprite.textContent = reaction;
+                showMessage(message, 2500); // Increased duration
+                
+                customerSprite.classList.add('translate-x-full', 'opacity-0');
+
+                setTimeout(() => {
+                    switchScreen('kitchen');
+                    updateUI();
+                }, 2800); // Increased duration
+            }
+            
+            toppingBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    serveCustomer(e.currentTarget.dataset.flavor);
+                });
+            });
+
+            goToStoreBtn.addEventListener('click', () => switchScreen('store'));
+            backToKitchenBtn.addEventListener('click', () => switchScreen('kitchen'));
+            startCookingBtn.addEventListener('click', startCooking);
+            buyBtns.forEach(btn => btn.addEventListener('click', () => buyItem(btn.dataset.item)));
+
+            function initializeGame() {
+                switchScreen('kitchen');
+                updateUI();
+            }
+            initializeGame();
+        });
+    </script>
+</body>
+</html>
